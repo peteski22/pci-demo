@@ -30,6 +30,17 @@ interface ServiceRequest {
   verificationRequestId: string | null;
 }
 
+// FastAPI's `detail` is a string for HTTPException but an array of validation
+// objects for 422s; only strings are safe to render.
+function apiErrorMessage(data: unknown, fallback: string): string {
+  if (data && typeof data === "object") {
+    const { detail, error } = data as { detail?: unknown; error?: unknown };
+    if (typeof detail === "string") return detail;
+    if (typeof error === "string") return error;
+  }
+  return fallback;
+}
+
 // Service requirements - what verification is needed for each service
 const SERVICE_REQUIREMENTS: Record<string, { minAge: number }> = {
   "Purchase Alcohol": { minAge: 21 },
@@ -48,6 +59,9 @@ function App() {
   const fetchData = useCallback(async () => {
     try {
       const verificationRes = await fetch(`${API_URL}/requests`);
+      if (!verificationRes.ok) {
+        throw new Error(`agent responded with ${verificationRes.status}`);
+      }
       const verificationData = await verificationRes.json();
       setVerificationRequests(verificationData.requests || []);
 
@@ -56,6 +70,9 @@ function App() {
           fetch(`${API_URL}/service-requests`),
           fetch(`${API_URL}/services`),
         ]);
+        if (!serviceRes.ok || !statusRes.ok) {
+          throw new Error("agent service endpoints unavailable");
+        }
         setServiceRequests((await serviceRes.json()).requests || []);
         setServices(await statusRes.json());
       }
@@ -153,8 +170,8 @@ function App() {
         await fetchData();
         setError(null);
       } else {
-        const data = await res.json();
-        setError(data.detail || data.error || `Failed to request ${serviceName} verification`);
+        const data = await res.json().catch(() => ({}));
+        setError(apiErrorMessage(data, `Failed to request ${serviceName} verification`));
       }
     } catch (err) {
       setError("Failed to connect to agent");
@@ -290,7 +307,9 @@ function IncomingTab({
             <div key={verification.id} className="card">
               <div className="card-header">
                 <strong>
-                  Age check ({String(verification.claim.params.minAge)}+)
+                  {verification.claim.type === "age"
+                    ? `Age check (${String(verification.claim.params.minAge)}+)`
+                    : `${verification.claim.type} check`}
                 </strong>
                 <span className="badge badge-pending">
                   {verification.status === "escalated" ? "Escalated" : "Awaiting Verification"}
@@ -466,7 +485,9 @@ function HistoryTab({
           <div key={verification.id} className="card">
             <div className="card-header">
               <strong>
-                Age check ({String(verification.claim.params.minAge)}+)
+                {verification.claim.type === "age"
+                  ? `Age check (${String(verification.claim.params.minAge)}+)`
+                  : `${verification.claim.type} check`}
               </strong>
               <span className={`badge ${
                 verification.status === "approved" ? "badge-verified" : "badge-rejected"
@@ -556,13 +577,15 @@ function HistoryTab({
                     <span className="proof-source midnight">ZK Proof</span>
                   )}
                 </div>
-                <pre>
-                  {JSON.stringify(
-                    verification.response.proof?.publicSignals ?? verification.response.proof,
-                    null,
-                    2
-                  )}
-                </pre>
+                {verification.response.proof && (
+                  <pre>
+                    {JSON.stringify(
+                      verification.response.proof.publicSignals ?? verification.response.proof,
+                      null,
+                      2
+                    )}
+                  </pre>
+                )}
                 <p style={{ marginTop: "0.5rem", fontSize: "0.875rem", color: "#166534" }}>
                   Transaction completed with zero-knowledge proof verification.
                 </p>

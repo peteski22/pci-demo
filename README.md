@@ -59,7 +59,7 @@ sequenceDiagram
     A-->>B: Verified (ageOver: 21)
 ```
 
-The approve call carries **no request body**: the agent sources the user's
+The approval call carries **no request body**: the agent sources the user's
 private data (e.g. birth date) from the encrypted context store itself, so
 private data never travels in a plaintext HTTP body.
 
@@ -179,10 +179,11 @@ This deploys the S-PAL validator to the local Yaci Cardano devnet. Currently the
 
 ## Service Status
 
-The status bar at the bottom of each app shows the encrypted context store
-connection (User App). The Agent / Midnight ZKP / Cardano indicators come
-from the agent's `/services` endpoint and reappear when the service flow is
-re-enabled (pci-agent#17).
+The User App's status bar shows the encrypted context-store connection. The
+Agent, Midnight ZKP, and Cardano indicators come from the agent's `/services`
+endpoint, so both apps show them only when `VITE_ENABLE_SERVICE_FLOW` is
+enabled (pending pci-agent#17); until then the Business App shows no status
+bar.
 
 ## Project Structure
 

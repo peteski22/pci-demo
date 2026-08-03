@@ -23,6 +23,17 @@ const SERVICE_FLOW_ENABLED = import.meta.env.VITE_ENABLE_SERVICE_FLOW === "true"
 // Demo hint - shown to help testers, but user must still enter it
 const DEMO_PASSWORD_HINT = "demo-password";
 
+// FastAPI's `detail` is a string for HTTPException but an array of validation
+// objects for 422s; only strings are safe to render.
+function apiErrorMessage(data: unknown, fallback: string): string {
+  if (data && typeof data === "object") {
+    const { detail, error } = data as { detail?: unknown; error?: unknown };
+    if (typeof detail === "string") return detail;
+    if (typeof error === "string") return error;
+  }
+  return fallback;
+}
+
 type Tab = "services" | "requests" | "context" | "identity" | "policies";
 
 interface ServiceStatus {
@@ -90,7 +101,7 @@ function App() {
   const contextStoreRef = useRef<ContextStoreClient | null>(null);
 
   // App state
-  const [tab, setTab] = useState<Tab>("services");
+  const [tab, setTab] = useState<Tab>(SERVICE_FLOW_ENABLED ? "services" : "requests");
   const [context, setContext] = useState<PersonalContext>(defaultContext);
   const [policies] = useState<SPALPolicy[]>(initialPolicies);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
@@ -221,6 +232,9 @@ function App() {
   const fetchData = useCallback(async () => {
     try {
       const verificationRes = await fetch(`${API_URL}/requests`);
+      if (!verificationRes.ok) {
+        throw new Error(`agent responded with ${verificationRes.status}`);
+      }
       const verificationData = await verificationRes.json();
       setVerificationRequests(verificationData.requests || []);
 
@@ -229,6 +243,9 @@ function App() {
           fetch(`${API_URL}/service-requests`),
           fetch(`${API_URL}/services`),
         ]);
+        if (!serviceRes.ok || !statusRes.ok) {
+          throw new Error("agent service endpoints unavailable");
+        }
         setServiceRequests((await serviceRes.json()).requests || []);
         setServices(await statusRes.json());
       }
@@ -273,8 +290,8 @@ function App() {
         await fetchData();
         setTab("requests"); // Switch to requests tab to see the flow
       } else {
-        const data = await res.json();
-        setError(data.error || "Failed to create request");
+        const data = await res.json().catch(() => ({}));
+        setError(apiErrorMessage(data, "Failed to create request"));
       }
     } catch (_err) {
       setError("Failed to connect to agent");
@@ -297,8 +314,8 @@ function App() {
       if (res.ok) {
         await fetchData();
       } else {
-        const data = await res.json();
-        setError(data.detail || data.error || "Failed to approve");
+        const data = await res.json().catch(() => ({}));
+        setError(apiErrorMessage(data, "Failed to approve"));
       }
     } catch (_err) {
       setError("Failed to connect to agent");
@@ -315,8 +332,8 @@ function App() {
       if (res.ok) {
         await fetchData();
       } else {
-        const data = await res.json();
-        setError(data.detail || data.error || "Failed to deny");
+        const data = await res.json().catch(() => ({}));
+        setError(apiErrorMessage(data, "Failed to deny"));
       }
     } catch (_err) {
       setError("Failed to connect to agent");
