@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { VerificationRequest } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8082";
@@ -62,6 +62,13 @@ function App() {
   const [processedRequests, setProcessedRequests] = useState<Set<string>>(new Set());
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [services, setServices] = useState<ServiceStatus | null>(null);
+  // Synchronous in-flight guards: the state Sets above only update after a
+  // POST resolves, so the 2s polling effect could re-fire the same POST while
+  // one is still pending (the agent re-links verification_required requests
+  // rather than rejecting them, so duplicates are user-visible). IDs are
+  // reserved here before each fetch and released only on failure, for retry.
+  const creatingIdsRef = useRef<Set<string>>(new Set());
+  const completingIdsRef = useRef<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
     try {
@@ -94,13 +101,17 @@ function App() {
   // Auto-respond to new service requests with verification requirements
   const handleNewServiceRequests = useCallback(async () => {
     const pendingRequests = serviceRequests.filter(
-      (r) => r.status === "pending" && !processedRequests.has(r.id)
+      (r) =>
+        r.status === "pending" &&
+        !processedRequests.has(r.id) &&
+        !creatingIdsRef.current.has(r.id)
     );
 
     let responded = false;
     for (const request of pendingRequests) {
       const requirements = SERVICE_REQUIREMENTS[request.service_name];
       if (requirements) {
+        creatingIdsRef.current.add(request.id);
         try {
           const res = await fetch(`${API_URL}/requests`, {
             method: "POST",
@@ -117,11 +128,13 @@ function App() {
             setProcessedRequests((prev) => new Set([...prev, request.id]));
             responded = true;
           } else {
+            creatingIdsRef.current.delete(request.id);
             console.error(
               `Failed to create verification request for service ${request.id}: ${res.status}`
             );
           }
         } catch (err) {
+          creatingIdsRef.current.delete(request.id);
           console.error("Failed to create verification request:", err);
         }
       }
@@ -134,11 +147,15 @@ function App() {
   // Auto-complete verified requests
   const handleVerifiedRequests = useCallback(async () => {
     const verifiedRequests = serviceRequests.filter(
-      (r) => r.status === "verified" && !completedIds.has(r.id)
+      (r) =>
+        r.status === "verified" &&
+        !completedIds.has(r.id) &&
+        !completingIdsRef.current.has(r.id)
     );
 
     let completed = false;
     for (const request of verifiedRequests) {
+      completingIdsRef.current.add(request.id);
       try {
         const res = await fetch(`${API_URL}/service-requests/${request.id}/complete`, {
           method: "POST",
@@ -148,9 +165,11 @@ function App() {
           setCompletedIds((prev) => new Set([...prev, request.id]));
           completed = true;
         } else {
+          completingIdsRef.current.delete(request.id);
           console.error(`Failed to complete service request ${request.id}: ${res.status}`);
         }
       } catch (err) {
+        completingIdsRef.current.delete(request.id);
         console.error("Failed to complete service request:", err);
       }
     }

@@ -38,6 +38,10 @@ flowchart TB
 
 ## Request Flow
 
+The default flow starts in the User App with a service request; the Business
+App responds with a verification requirement and completes the request once
+verified:
+
 ```mermaid
 sequenceDiagram
     participant U as User App
@@ -46,7 +50,10 @@ sequenceDiagram
     participant Z as ZKP Service
     participant M as Midnight
 
-    B->>A: POST /requests<br/>(verify age >= 21)
+    U->>A: POST /service-requests<br/>(e.g. "Purchase Alcohol")
+    B->>A: GET /service-requests<br/>(polling)
+    A-->>B: Pending service request
+    B->>A: POST /requests<br/>(verify age >= 21,<br/>linked via service_request_id)
     U->>A: GET /requests<br/>(polling)
     A-->>U: Verification request
     U->>A: POST /requests/:id/approve<br/>(no body - agent fetches private<br/>data from the context store)
@@ -55,9 +62,15 @@ sequenceDiagram
     M-->>Z: ZK proof
     Z-->>A: Proof result
     A-->>U: Approved with proof
-    B->>A: GET /requests<br/>(polling)
+    B->>A: GET /service-requests<br/>(polling)
     A-->>B: Verified (ageOver: 21)
+    B->>A: POST /service-requests/:id/complete
+    A-->>B: Completed
 ```
+
+With `VITE_ENABLE_SERVICE_FLOW=false` there is no service-request lifecycle:
+the flow starts at the Business App's `POST /requests` and ends at the
+verified result.
 
 The approval call carries **no request body**: the agent sources the user's
 private data (e.g. birth date) from the encrypted context store itself, so
