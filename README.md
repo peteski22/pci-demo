@@ -1,3 +1,5 @@
+> **Archived 2026-10-16.** This repository has moved to [peteski22/freehold](https://github.com/peteski22/freehold/tree/main/demo). Open issues were transferred there and full history is preserved. This copy is read-only.
+
 # PCI Demo
 
 Interactive demonstration of Personal Context Infrastructure (PCI) showing privacy-preserving data sharing between users and businesses using zero-knowledge proofs.
